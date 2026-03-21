@@ -1,0 +1,1500 @@
+# Frechy - French Grammar Practice CLI
+## Specification v1
+
+## Overview
+Minimal CLI interactive app to train French grammar using LLM-generated exercises. Initial focus on pronoun word order (e.g., "je lui ai dit" vs "j'ai lui dit"). Designed to be extensible to other grammar topics (articles, subjunctive, etc.). Tracks user sessions and progress in SQLite.
+
+## Goals
+- Practice specific French grammar topics with targeted exercises
+- Two practice modes: translation and word-order
+- LLM-generated exercises on-demand (via OpenRouter)
+- Session tracking with topic-based progression
+- Modular, extensible codebase for future topics
+- Minimal, tight code for experimentation
+
+## Non-Goals (Future Work)
+- Free-form text input with grammar detection
+- Adaptive difficulty based on performance within session
+- Multi-user support beyond hardcoded username
+- Web interface
+- Spaced repetition scheduling
+
+---
+
+## Architecture
+
+### Technology Stack
+- Python 3.11+
+- Nix flake for development environment
+- OpenRouter API (LLM generation & validation)
+- httpx (async HTTP client)
+- rich (CLI formatting and display)
+- SQLite (session persistence)
+- python-dotenv (environment config)
+
+### Project Structure
+```
+frechy/
+├── flake.nix              # Nix development environment
+├── .env                   # OpenRouter API key
+├── .gitignore             # Ignore .env, *.db, __pycache__
+├── spec-v1                # This file
+├── README.md              # Basic usage instructions
+├── src/
+│   ├── main.py           # CLI entry point, argument parsing
+│   ├── session.py        # Session management and main loop
+│   ├── llm.py            # OpenRouter API client (generic)
+│   ├── db.py             # Database operations
+│   ├── models.py         # Data classes, enums (PracticeMode)
+│   ├── display.py        # Rich formatting utilities
+│   ├── topics/
+│   │   ├── __init__.py   # TopicRegistry
+│   │   ├── base.py       # TopicConfig class
+│   │   └── pronouns.py   # Pronoun topic definitions
+│   └── prompts/
+│       ├── __init__.py   # Prompt utilities
+│       ├── base.py       # Shared prompt templates
+│       └── pronouns.py   # Pronoun-specific prompts
+└── frechy.db             # SQLite database (created at runtime)
+```
+
+---
+
+## Topic System
+
+### Topic Naming Convention
+Topics use namespaced format: `{category}.{topic-key}`
+
+**Examples:**
+- `pronouns.direct-object`
+- `pronouns.negation-reflexive`
+- `articles.partitive` (future)
+- `subjunctive.present` (future)
+
+### Pronoun Topics (v1)
+
+#### Level 1: Single Pronouns (Present Tense)
+1. **pronouns.direct-object** - le, la, les
+   - "Je le vois" / "I see him"
+2. **pronouns.indirect-object** - lui, leur
+   - "Je lui parle" / "I speak to him"
+3. **pronouns.reflexive** - me, te, se, nous, vous
+   - "Je me lave" / "I wash myself"
+
+#### Level 2: Negations (Present Tense)
+4. **pronouns.negation-direct** - ne...pas with direct pronouns
+   - "Je ne le vois pas" / "I don't see him"
+5. **pronouns.negation-indirect** - ne...pas with indirect pronouns
+   - "Je ne lui parle pas" / "I don't speak to him"
+6. **pronouns.negation-reflexive** - ne...pas with reflexive
+   - "Je ne me lave pas" / "I don't wash myself"
+
+#### Level 3: Compound Tenses (Passé Composé)
+7. **pronouns.direct-passe-compose** - le/la/les with passé composé
+   - "Je l'ai vu" / "I saw him"
+8. **pronouns.indirect-passe-compose** - lui/leur with passé composé
+   - "Je lui ai parlé" / "I spoke to him"
+9. **pronouns.reflexive-passe-compose** - reflexive with passé composé
+   - "Je me suis lavé" / "I washed myself"
+
+#### Level 4: Negations + Compound Tenses
+10. **pronouns.negation-passe-compose** - ne...pas with passé composé
+    - "Je ne l'ai pas vu" / "I didn't see him"
+
+#### Level 5: Advanced Combinations
+11. **pronouns.double** - COD + COI together
+    - "Je le lui donne" / "I give it to him"
+12. **pronouns.double-passe-compose**
+    - "Je le lui ai donné" / "I gave it to him"
+
+### Practice Modes
+
+```python
+# models.py
+from enum import Enum
+
+class PracticeMode(str, Enum):
+    """Practice modes for exercises.
+
+    - TRANSLATION: User translates English to French
+    - WORD_ORDER: User arranges numbered French words in correct order
+    """
+    TRANSLATION = "translation"
+    WORD_ORDER = "word-order"
+```
+
+### Topic Configuration
+
+```python
+# topics/base.py
+from dataclasses import dataclass, field
+from models import PracticeMode
+
+@dataclass
+class TopicConfig:
+    """Configuration for a grammar practice topic.
+
+    Example:
+        TopicConfig(
+            category="pronouns",
+            key="direct-object",
+            name="Direct Object Pronouns",
+            description="Practice using le, la, les in present tense",
+            grammar_focus=[
+                "direct object pronouns (le, la, les)",
+                "present tense",
+                "placement before conjugated verb"
+            ],
+            prompt_hints=(
+                "Direct object pronouns (le, la, les) are placed directly "
+                "before the conjugated verb. Example: 'Je le vois' (I see him). "
+                "Remember: le/la contract to l' before vowels."
+            ),
+            supported_modes=[PracticeMode.TRANSLATION, PracticeMode.WORD_ORDER]
+        )
+
+        This creates topic "pronouns.direct-object" which generates exercises like:
+        - English: "I see him"
+        - French: "Je le vois"
+    """
+    category: str                     # "pronouns", "articles", "subjunctive"
+    key: str                          # "direct-object", "negation-reflexive"
+    name: str                         # Human-readable: "Direct Object Pronouns"
+    description: str                  # For --list-topics display
+    grammar_focus: list[str]          # Hints for LLM about what to focus on
+    prompt_hints: str                 # Additional context for LLM generation
+    supported_modes: list[PracticeMode] = field(
+        default_factory=lambda: [PracticeMode.TRANSLATION, PracticeMode.WORD_ORDER]
+    )
+
+    @property
+    def full_key(self) -> str:
+        """Returns 'category.key', e.g., 'pronouns.direct-object'"""
+        return f"{self.category}.{self.key}"
+```
+
+### Topic Registry
+
+```python
+# topics/__init__.py
+from topics.base import TopicConfig
+
+class TopicRegistry:
+    """Central registry for all available practice topics."""
+
+    _topics: dict[str, TopicConfig] = {}
+
+    @classmethod
+    def register(cls, topic: TopicConfig) -> None:
+        """Register a topic. Called during module import."""
+        cls._topics[topic.full_key] = topic
+
+    @classmethod
+    def get_topic(cls, full_key: str) -> TopicConfig | None:
+        """Get topic by full key (e.g., 'pronouns.direct-object')"""
+        return cls._topics.get(full_key)
+
+    @classmethod
+    def list_topics(cls, category: str | None = None) -> list[TopicConfig]:
+        """List all topics or filter by category"""
+        if category:
+            return [t for t in cls._topics.values() if t.category == category]
+        return list(cls._topics.values())
+
+    @classmethod
+    def list_categories(cls) -> list[str]:
+        """List all available categories"""
+        categories = {t.category for t in cls._topics.values()}
+        return sorted(categories)
+```
+
+---
+
+## Database Schema
+
+### sessions
+```sql
+CREATE TABLE sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_name TEXT NOT NULL DEFAULT 'ilya',
+    start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    topic TEXT NOT NULL,  -- Full topic key: "pronouns.direct-object"
+    mode TEXT NOT NULL CHECK(mode IN ('translation', 'word-order')),
+    end_time TIMESTAMP,
+    total_exercises INTEGER DEFAULT 0,
+    correct_first_try INTEGER DEFAULT 0
+);
+```
+
+### exercises
+```sql
+CREATE TABLE exercises (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL,
+    topic TEXT NOT NULL,
+    english_text TEXT NOT NULL,
+    correct_french TEXT NOT NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+```
+
+### attempts
+```sql
+CREATE TABLE attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    exercise_id INTEGER NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    user_answer TEXT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    hints_used INTEGER DEFAULT 0,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (exercise_id) REFERENCES exercises(id)
+);
+```
+
+---
+
+## CLI Interface
+
+### Command Line Arguments
+
+```bash
+python src/main.py --topic <topic-key> --mode <mode>
+python src/main.py -t <topic-key> -m <mode>
+python src/main.py --list-topics [category]
+python src/main.py --help
+```
+
+**Arguments:**
+- `--topic, -t`: Required (unless --list-topics). Full topic key (e.g., `pronouns.direct-object`)
+- `--mode, -m`: Required (unless --list-topics). One of: `translation`, `word-order`
+- `--list-topics`: Optional. List available topics (optionally filter by category)
+- `--help, -h`: Show help message
+
+**Examples:**
+```bash
+# Start practice session
+python src/main.py -t pronouns.direct-object -m translation
+python src/main.py -t pronouns.negation-passe-compose -m word-order
+
+# List topics
+python src/main.py --list-topics
+python src/main.py --list-topics pronouns
+```
+
+**List Topics Output:**
+```
+Available Topics - pronouns
+════════════════════════════════════════════════════════════
+pronouns.direct-object
+  Direct Object Pronouns
+  Practice using le, la, les in present tense
+  Modes: translation, word-order
+
+pronouns.indirect-object
+  Indirect Object Pronouns
+  Practice using lui, leur in present tense
+  Modes: translation, word-order
+
+pronouns.reflexive
+  Reflexive Pronouns
+  Practice using me, te, se, nous, vous in present tense
+  Modes: translation, word-order
+
+[... etc ...]
+```
+
+### Session Flow
+
+```
+1. Parse CLI arguments
+2. Validate topic exists and mode is supported
+3. Initialize database connection
+4. Create session record
+5. Main exercise loop:
+   a. Generate exercise via LLM (on-demand)
+   b. Present exercise based on mode
+   c. Get user input
+   d. Validate answer via LLM
+   e. If correct:
+      - Show success message
+      - Save attempt as correct
+      - Continue to next exercise
+   f. If incorrect:
+      - Show failure message
+      - Offer: [R]etry / [H]int / [S]how answer / [Q]uit
+      - Handle user choice
+6. End session (Ctrl+C or user quits)
+7. Update session record (end_time, stats)
+8. Show session summary
+```
+
+---
+
+## Practice Modes
+
+### Mode 1: Translation
+**Input:** English sentence
+**Output:** User types French translation
+
+**Example:**
+```
+Exercise 1
+
+Translate to French:
+I see him
+
+> je le vois
+
+✓ Correct!
+```
+
+### Mode 2: Word Order
+**Input:** Numbered French words (randomly shuffled)
+**Output:** User types correct order as space-separated numbers
+
+**Example:**
+```
+Exercise 1
+
+Put these words in correct order:
+1. vois
+2. le
+3. je
+
+> 3 2 1
+
+✓ Correct! "je le vois"
+```
+
+**Input format:** `3 2 1` or `321` (both accepted)
+
+---
+
+## LLM Integration
+
+### OpenRouter Configuration
+- API endpoint: `https://openrouter.ai/api/v1/chat/completions`
+- Model: `anthropic/claude-3-haiku` (default, configurable via .env)
+- API key: stored in `.env` as `OPENROUTER_API_KEY`
+- Timeout: 30 seconds
+- Retry: 3 attempts with exponential backoff (1s, 2s, 4s)
+
+### Exercise Generation
+
+**Module:** `prompts/pronouns.py`
+
+**Function:** `generate_exercise_prompt(topic_config: TopicConfig) -> str`
+
+**Prompt Template:**
+```
+You are a French language teacher creating exercises for intermediate learners.
+
+Topic: {topic_config.name}
+Grammar Focus: {', '.join(topic_config.grammar_focus)}
+
+{topic_config.prompt_hints}
+
+Generate ONE exercise that tests this specific grammar point.
+
+Requirements:
+- Natural, conversational sentence (like something you'd say to a friend)
+- Clear usage of the target grammar concept
+- Appropriate vocabulary for intermediate learners
+- Avoid overly complex vocabulary or idioms
+- Keep sentences concise (under 15 words)
+
+Return ONLY valid JSON with this exact structure:
+{
+  "english": "English sentence here",
+  "correct_french": "Correct French sentence with proper grammar"
+}
+
+Do not include any explanations or additional text, just the JSON.
+```
+
+**Response Parsing:**
+- Extract JSON from LLM response (handle markdown code blocks if present)
+- Validate required fields exist
+- Return `Exercise` object
+
+### Answer Validation
+
+**Module:** `prompts/pronouns.py`
+
+**Function:** `validate_answer_prompt(topic_config: TopicConfig, correct: str, user: str) -> str`
+
+**Prompt Template:**
+```
+You are evaluating a French learner's answer for grammar accuracy.
+
+Topic: {topic_config.name}
+Grammar Focus: {', '.join(topic_config.grammar_focus)}
+
+Correct answer: {correct}
+User's answer: {user}
+
+Evaluate the grammar and word order, especially focusing on the target grammar point.
+
+Be LENIENT with:
+- Minor spelling errors (e.g., "vois" vs "voit")
+- Missing or incorrect accent marks (é vs e, à vs a, etc.)
+- Capitalization
+- Extra spaces or punctuation
+
+Be STRICT with:
+- Word order (especially pronoun placement)
+- Missing or extra words
+- Wrong pronouns or verb forms
+
+Return ONLY valid JSON:
+{
+  "is_correct": true,
+  "feedback": "Brief explanation if incorrect (max 50 words)"
+}
+
+If correct, set feedback to empty string "".
+```
+
+**Response Parsing:**
+- Extract JSON from LLM response
+- Return `(is_correct: bool, feedback: str)`
+
+### Hint Generation
+
+**Module:** `prompts/pronouns.py`
+
+**Function:** `generate_hint_prompt(topic_config: TopicConfig, english: str, correct: str, user: str) -> str`
+
+**Prompt Template:**
+```
+A French learner is struggling with this exercise.
+
+Topic: {topic_config.name}
+English: {english}
+Correct French: {correct}
+User's attempt: {user}
+
+Provide a helpful, encouraging hint about the grammar without giving away the full answer.
+
+DO:
+- Be specific about the grammar rule (e.g., "In compound tenses, pronouns come before the auxiliary verb")
+- Point to the specific mistake (e.g., "Check the position of 'le' relative to the verb")
+- Be encouraging and supportive
+- Keep it brief (2-3 sentences maximum)
+
+DO NOT:
+- Give away the complete answer
+- Use discouraging language
+- Use technical linguistic jargon
+- Explain unrelated grammar
+
+Return only the hint text, no JSON or additional formatting.
+```
+
+---
+
+## User Interactions
+
+### During Exercise
+
+**On Correct Answer:**
+```
+✓ Correct!
+
+[Next exercise loads...]
+```
+
+**On Incorrect Answer:**
+```
+✗ Incorrect
+
+What would you like to do?
+[R]etry   [H]int   [S]how answer   [Q]uit
+> _
+```
+
+**User Actions:**
+- `R` or `r`: Try again (create new attempt record for same exercise)
+- `H` or `h`: Get LLM-generated hint (increment hints_used for current attempt)
+- `S` or `s`: Show correct answer, mark exercise as failed, move to next
+- `Q` or `q`: End session gracefully, show stats
+
+**After Hint:**
+```
+💡 Hint: In compound tenses like passé composé, object pronouns are placed
+before the auxiliary verb (avoir/être), not after it.
+
+Try again:
+> _
+```
+
+**After Show Answer:**
+```
+The correct answer is: je l'ai vu
+
+[Next exercise loads...]
+```
+
+### Session End (Ctrl+C or Quit)
+
+```
+Session Summary
+═══════════════════════════════════════════════════════════
+Topic:          pronouns.direct-object
+Mode:           translation
+Duration:       8 minutes
+Total:          12 exercises
+First try ✓:    8 exercises
+Accuracy:       66.7%
+
+Keep practicing! 🇫🇷
+```
+
+---
+
+## Error Handling
+
+### API Errors
+- **Network failures:** Retry with exponential backoff (1s, 2s, 4s), max 3 attempts
+- **Rate limits (429):** Show message, wait 60s, retry
+- **Invalid API key (401):** Print clear error message and exit with code 1
+- **Invalid JSON response:** Log warning, regenerate exercise (max 2 retries per exercise)
+- **Timeout:** Show error, offer user choice: [R]etry generation / [S]kip / [Q]uit
+
+### User Input
+- **Invalid topic:** Show error and available topics, exit with code 1
+- **Invalid mode:** Show valid modes, exit with code 1
+- **Mode not supported by topic:** Show topic's supported modes, exit with code 1
+- **Malformed answer in word-order:** Prompt again with format hint: "Enter numbers like: 3 2 1"
+- **Empty input:** Prompt again
+- **Ctrl+C:** Catch signal, end session gracefully, show stats
+- **Ctrl+D (EOF):** Same as Ctrl+C
+
+### Database
+- **Missing DB file:** Create automatically with schema on first run
+- **Schema mismatch:** For v1, drop and recreate tables (simple migration)
+- **Write failures:** Show error, attempt to save minimal session info, exit gracefully
+- **Concurrent access:** Not handled in v1 (single user)
+
+---
+
+## Code Architecture Details
+
+### Module: models.py
+**Responsibilities:**
+- Enums (PracticeMode)
+- Data classes for type safety
+- Serialization helpers
+
+**Key Classes:**
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+
+class PracticeMode(str, Enum):
+    TRANSLATION = "translation"
+    WORD_ORDER = "word-order"
+
+@dataclass
+class Exercise:
+    id: int | None
+    session_id: int
+    topic: str
+    english_text: str
+    correct_french: str
+    timestamp: datetime | None = None
+
+@dataclass
+class Attempt:
+    id: int | None
+    exercise_id: int
+    attempt_number: int
+    user_answer: str
+    is_correct: bool
+    hints_used: int
+    timestamp: datetime | None = None
+
+@dataclass
+class SessionStats:
+    total_exercises: int
+    correct_first_try: int
+    duration_minutes: int
+
+    @property
+    def accuracy(self) -> float:
+        if self.total_exercises == 0:
+            return 0.0
+        return self.correct_first_try / self.total_exercises * 100
+```
+
+### Module: main.py
+**Responsibilities:**
+- Parse CLI arguments with argparse
+- Handle --list-topics
+- Validate topic and mode
+- Initialize database
+- Create and start session
+- Handle Ctrl+C gracefully
+
+**Key Functions:**
+```python
+import argparse
+from models import PracticeMode
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Frechy - French grammar practice CLI"
+    )
+    parser.add_argument(
+        "-t", "--topic",
+        help="Topic to practice (e.g., pronouns.direct-object)"
+    )
+    parser.add_argument(
+        "-m", "--mode",
+        choices=[m.value for m in PracticeMode],
+        help="Practice mode"
+    )
+    parser.add_argument(
+        "--list-topics",
+        nargs="?",
+        const="",
+        metavar="CATEGORY",
+        help="List available topics (optionally filter by category)"
+    )
+    return parser.parse_args()
+
+def main():
+    args = parse_args()
+
+    if args.list_topics is not None:
+        display_topics(args.list_topics if args.list_topics else None)
+        return
+
+    if not args.topic or not args.mode:
+        print("Error: --topic and --mode are required")
+        sys.exit(1)
+
+    # Validate topic exists
+    topic_config = TopicRegistry.get_topic(args.topic)
+    if not topic_config:
+        print(f"Error: Unknown topic '{args.topic}'")
+        print("\nRun with --list-topics to see available topics")
+        sys.exit(1)
+
+    # Validate mode is supported
+    mode = PracticeMode(args.mode)
+    if mode not in topic_config.supported_modes:
+        print(f"Error: Topic '{args.topic}' doesn't support mode '{args.mode}'")
+        print(f"Supported modes: {', '.join(m.value for m in topic_config.supported_modes)}")
+        sys.exit(1)
+
+    db = Database()
+    session = Session(db, topic_config, mode)
+
+    try:
+        session.run()
+    except KeyboardInterrupt:
+        print("\n")
+        session.end()
+```
+
+### Module: session.py
+**Responsibilities:**
+- Main exercise loop
+- Coordinate LLM, display, database
+- Handle user actions (R/H/S/Q)
+- Track statistics
+
+**Key Classes:**
+```python
+class Session:
+    def __init__(self, db: Database, topic_config: TopicConfig, mode: PracticeMode):
+        self.db = db
+        self.topic_config = topic_config
+        self.mode = mode
+        self.llm = LLMClient()
+        self.session_id = self.db.create_session(
+            user_name="ilya",
+            topic=topic_config.full_key,
+            mode=mode.value
+        )
+        self.exercise_count = 0
+        self.correct_first_try_count = 0
+
+    def run(self):
+        """Main exercise loop - runs until user quits"""
+        while True:
+            self.exercise_count += 1
+            exercise = self.generate_exercise()
+            self.db.create_exercise(exercise)
+
+            is_correct_first_try = self.present_and_handle_exercise(exercise)
+            if is_correct_first_try:
+                self.correct_first_try_count += 1
+
+    def generate_exercise(self) -> Exercise:
+        """Generate exercise via LLM"""
+        prompt = generate_exercise_prompt(self.topic_config)
+        response = self.llm.complete(prompt)
+        data = json.loads(response)
+
+        return Exercise(
+            id=None,
+            session_id=self.session_id,
+            topic=self.topic_config.full_key,
+            english_text=data["english"],
+            correct_french=data["correct_french"]
+        )
+
+    def present_and_handle_exercise(self, exercise: Exercise) -> bool:
+        """Present exercise, get answer, handle retry/hint/show"""
+        if self.mode == PracticeMode.TRANSLATION:
+            display.show_exercise_translation(exercise, self.exercise_count)
+        else:
+            shuffled_words = self.shuffle_words(exercise.correct_french)
+            display.show_exercise_word_order(exercise, shuffled_words, self.exercise_count)
+
+        attempt_num = 1
+        hints_used = 0
+
+        while True:
+            user_answer = input("> ").strip()
+
+            if self.mode == PracticeMode.WORD_ORDER:
+                user_answer = self.reconstruct_from_indices(user_answer, shuffled_words)
+
+            is_correct, feedback = self.validate_answer(exercise, user_answer)
+
+            self.db.create_attempt(
+                exercise_id=exercise.id,
+                attempt_number=attempt_num,
+                user_answer=user_answer,
+                is_correct=is_correct,
+                hints_used=hints_used
+            )
+
+            if is_correct:
+                display.show_correct()
+                return attempt_num == 1
+            else:
+                display.show_incorrect(feedback)
+                action = self.get_user_action()
+
+                if action == "retry":
+                    attempt_num += 1
+                    hints_used = 0
+                    continue
+                elif action == "hint":
+                    hint = self.generate_hint(exercise, user_answer)
+                    display.show_hint(hint)
+                    hints_used += 1
+                    continue
+                elif action == "show":
+                    display.show_answer(exercise.correct_french)
+                    return False
+                elif action == "quit":
+                    self.end()
+                    sys.exit(0)
+
+    def validate_answer(self, exercise: Exercise, user_answer: str) -> tuple[bool, str]:
+        """Validate answer via LLM"""
+        prompt = validate_answer_prompt(
+            self.topic_config,
+            exercise.correct_french,
+            user_answer
+        )
+        response = self.llm.complete(prompt)
+        data = json.loads(response)
+        return data["is_correct"], data.get("feedback", "")
+
+    def generate_hint(self, exercise: Exercise, user_answer: str) -> str:
+        """Generate hint via LLM"""
+        prompt = generate_hint_prompt(
+            self.topic_config,
+            exercise.english_text,
+            exercise.correct_french,
+            user_answer
+        )
+        return self.llm.complete(prompt)
+
+    def end(self):
+        """End session, update DB, show summary"""
+        stats = SessionStats(
+            total_exercises=self.exercise_count,
+            correct_first_try=self.correct_first_try_count,
+            duration_minutes=self.calculate_duration()
+        )
+        self.db.end_session(self.session_id, stats)
+        display.show_session_summary(
+            stats,
+            self.topic_config.full_key,
+            self.mode.value
+        )
+```
+
+### Module: llm.py
+**Responsibilities:**
+- Generic OpenRouter API client
+- Handle retries, timeouts, errors
+- Parse JSON responses
+
+**Key Classes:**
+```python
+import httpx
+import json
+import time
+from typing import Optional
+
+class LLMClient:
+    def __init__(self):
+        self.api_key = os.getenv("OPENROUTER_API_KEY")
+        self.model = os.getenv("OPENROUTER_MODEL", "anthropic/claude-3-haiku")
+        self.base_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.timeout = 30.0
+        self.max_retries = 3
+
+    def complete(self, prompt: str) -> str:
+        """Send prompt to LLM, return response text with retry logic"""
+        for attempt in range(self.max_retries):
+            try:
+                response = httpx.post(
+                    self.base_url,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": self.model,
+                        "messages": [{"role": "user", "content": prompt}]
+                    },
+                    timeout=self.timeout
+                )
+
+                if response.status_code == 401:
+                    raise Exception("Invalid OpenRouter API key")
+
+                if response.status_code == 429:
+                    if attempt < self.max_retries - 1:
+                        time.sleep(60)
+                        continue
+                    raise Exception("Rate limited")
+
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+
+            except httpx.TimeoutException:
+                if attempt < self.max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise Exception("Request timeout")
+
+            except httpx.NetworkError:
+                if attempt < self.max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise Exception("Network error")
+
+        raise Exception("Max retries exceeded")
+
+    def parse_json(self, response: str) -> dict:
+        """Extract and parse JSON from response (handle markdown blocks)"""
+        # Remove markdown code blocks if present
+        response = response.strip()
+        if response.startswith("```"):
+            lines = response.split("\n")
+            response = "\n".join(lines[1:-1])
+        return json.loads(response)
+```
+
+### Module: db.py
+**Responsibilities:**
+- SQLite connection management
+- CRUD operations for sessions, exercises, attempts
+- Schema creation
+
+**Key Classes:**
+```python
+import sqlite3
+from datetime import datetime
+
+class Database:
+    def __init__(self, db_path: str = "frechy.db"):
+        self.conn = sqlite3.connect(db_path)
+        self.conn.row_factory = sqlite3.Row
+        self.create_schema()
+
+    def create_schema(self):
+        """Create tables if they don't exist"""
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_name TEXT NOT NULL DEFAULT 'ilya',
+                start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                topic TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK(mode IN ('translation', 'word-order')),
+                end_time TIMESTAMP,
+                total_exercises INTEGER DEFAULT 0,
+                correct_first_try INTEGER DEFAULT 0
+            )
+        """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS exercises (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                topic TEXT NOT NULL,
+                english_text TEXT NOT NULL,
+                correct_french TEXT NOT NULL,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (session_id) REFERENCES sessions(id)
+            )
+        """)
+
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                exercise_id INTEGER NOT NULL,
+                attempt_number INTEGER NOT NULL,
+                user_answer TEXT NOT NULL,
+                is_correct BOOLEAN NOT NULL,
+                hints_used INTEGER DEFAULT 0,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (exercise_id) REFERENCES exercises(id)
+            )
+        """)
+
+        self.conn.commit()
+
+    def create_session(self, user_name: str, topic: str, mode: str) -> int:
+        """Create session, return session_id"""
+        cursor = self.conn.execute(
+            "INSERT INTO sessions (user_name, topic, mode) VALUES (?, ?, ?)",
+            (user_name, topic, mode)
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def create_exercise(self, exercise: Exercise) -> int:
+        """Create exercise, return exercise_id"""
+        cursor = self.conn.execute(
+            """INSERT INTO exercises
+               (session_id, topic, english_text, correct_french)
+               VALUES (?, ?, ?, ?)""",
+            (exercise.session_id, exercise.topic,
+             exercise.english_text, exercise.correct_french)
+        )
+        self.conn.commit()
+        exercise.id = cursor.lastrowid
+        return exercise.id
+
+    def create_attempt(self, exercise_id: int, attempt_number: int,
+                      user_answer: str, is_correct: bool, hints_used: int) -> int:
+        """Create attempt, return attempt_id"""
+        cursor = self.conn.execute(
+            """INSERT INTO attempts
+               (exercise_id, attempt_number, user_answer, is_correct, hints_used)
+               VALUES (?, ?, ?, ?, ?)""",
+            (exercise_id, attempt_number, user_answer, is_correct, hints_used)
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def end_session(self, session_id: int, stats: SessionStats):
+        """Update session with end_time and stats"""
+        self.conn.execute(
+            """UPDATE sessions
+               SET end_time = CURRENT_TIMESTAMP,
+                   total_exercises = ?,
+                   correct_first_try = ?
+               WHERE id = ?""",
+            (stats.total_exercises, stats.correct_first_try, session_id)
+        )
+        self.conn.commit()
+```
+
+### Module: display.py
+**Responsibilities:**
+- Rich-based formatting
+- Pretty-print exercises, hints, summaries
+- Color-coded output
+
+**Key Functions:**
+```python
+from rich.console import Console
+from rich.panel import Panel
+from rich import print as rprint
+
+console = Console()
+
+def show_exercise_translation(exercise: Exercise, num: int):
+    """Display translation mode exercise"""
+    console.print(f"\n[bold]Exercise {num}[/bold]\n")
+    console.print("Translate to French:")
+    console.print(f"[cyan]{exercise.english_text}[/cyan]\n")
+
+def show_exercise_word_order(exercise: Exercise, shuffled_words: list[str], num: int):
+    """Display word-order mode exercise"""
+    console.print(f"\n[bold]Exercise {num}[/bold]\n")
+    console.print("Put these words in correct order:")
+    for i, word in enumerate(shuffled_words, 1):
+        console.print(f"{i}. {word}")
+    console.print()
+
+def show_correct():
+    """Display success message"""
+    console.print("[green]✓ Correct![/green]\n")
+
+def show_incorrect(feedback: str = ""):
+    """Display failure message"""
+    console.print("[red]✗ Incorrect[/red]\n")
+    if feedback:
+        console.print(f"[yellow]{feedback}[/yellow]\n")
+
+def show_hint(hint: str):
+    """Display hint with formatting"""
+    console.print(Panel(hint, title="💡 Hint", border_style="yellow"))
+    console.print()
+
+def show_answer(correct: str):
+    """Show correct answer"""
+    console.print(f"The correct answer is: [green]{correct}[/green]\n")
+
+def show_session_summary(stats: SessionStats, topic: str, mode: str):
+    """Display final session summary"""
+    console.print("\n[bold]Session Summary[/bold]")
+    console.print("═" * 60)
+    console.print(f"Topic:          {topic}")
+    console.print(f"Mode:           {mode}")
+    console.print(f"Duration:       {stats.duration_minutes} minutes")
+    console.print(f"Total:          {stats.total_exercises} exercises")
+    console.print(f"First try ✓:    {stats.correct_first_try} exercises")
+    console.print(f"Accuracy:       {stats.accuracy:.1f}%")
+    console.print("\nKeep practicing! 🇫🇷\n")
+
+def get_user_action() -> str:
+    """Prompt for R/H/S/Q action"""
+    console.print("What would you like to do?")
+    console.print("[R]etry   [H]int   [S]how answer   [Q]uit")
+
+    while True:
+        choice = input("> ").strip().lower()
+        if choice in ["r", "retry"]:
+            return "retry"
+        elif choice in ["h", "hint"]:
+            return "hint"
+        elif choice in ["s", "show"]:
+            return "show"
+        elif choice in ["q", "quit"]:
+            return "quit"
+        else:
+            console.print("[red]Invalid choice. Please enter R, H, S, or Q[/red]")
+```
+
+### Module: topics/pronouns.py
+**Responsibilities:**
+- Define all pronoun topics
+- Register with TopicRegistry on import
+
+**Example:**
+```python
+from topics.base import TopicConfig
+from topics import TopicRegistry
+from models import PracticeMode
+
+PRONOUN_TOPICS = [
+    TopicConfig(
+        category="pronouns",
+        key="direct-object",
+        name="Direct Object Pronouns",
+        description="Practice using le, la, les in present tense",
+        grammar_focus=[
+            "direct object pronouns (le, la, les)",
+            "present tense",
+            "placement before conjugated verb",
+            "contraction to l' before vowels"
+        ],
+        prompt_hints=(
+            "Direct object pronouns (le, la, les) replace direct objects and are "
+            "placed directly before the conjugated verb. Example: 'Je vois Pierre' "
+            "becomes 'Je le vois'. Remember that le/la contract to l' before vowels."
+        ),
+        supported_modes=[PracticeMode.TRANSLATION, PracticeMode.WORD_ORDER]
+    ),
+
+    TopicConfig(
+        category="pronouns",
+        key="indirect-object",
+        name="Indirect Object Pronouns",
+        description="Practice using lui, leur in present tense",
+        grammar_focus=[
+            "indirect object pronouns (lui, leur)",
+            "present tense",
+            "placement before conjugated verb"
+        ],
+        prompt_hints=(
+            "Indirect object pronouns (lui, leur) replace indirect objects "
+            "(à + person) and are placed directly before the conjugated verb. "
+            "Example: 'Je parle à Marie' becomes 'Je lui parle'."
+        ),
+        supported_modes=[PracticeMode.TRANSLATION, PracticeMode.WORD_ORDER]
+    ),
+
+    # ... define remaining 10 topics
+]
+
+# Register all topics on module import
+for topic in PRONOUN_TOPICS:
+    TopicRegistry.register(topic)
+```
+
+### Module: prompts/pronouns.py
+**Responsibilities:**
+- Prompt templates for pronoun exercises
+- Specialized prompt logic per topic
+
+See "LLM Integration" section above for detailed prompt templates.
+
+---
+
+## Future Enhancements (Stubs for v1)
+
+### Adaptive Difficulty
+**Location:** `session.py`
+
+**Stub Method:**
+```python
+def adapt_difficulty(self, success_rate: float) -> None:
+    """
+    Future: Adjust exercise generation based on user performance.
+    Could modify prompts to increase/decrease complexity.
+    For now, does nothing.
+    """
+    pass
+```
+
+### New Topic Categories
+Create new modules following the pattern:
+- `topics/articles.py` - Definite/indefinite/partitive articles
+- `topics/subjunctive.py` - Subjunctive mood (translation mode only)
+- `prompts/articles.py` - Article-specific prompts
+- `prompts/subjunctive.py` - Subjunctive-specific prompts
+
+---
+
+## Development Setup
+
+### Nix Flake (flake.nix)
+```nix
+{
+  description = "Frechy - French grammar practice CLI";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  };
+
+  outputs = { self, nixpkgs }:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+    in
+    {
+      devShells.${system}.default = pkgs.mkShell {
+        packages = with pkgs; [
+          python311
+          python311Packages.httpx
+          python311Packages.rich
+          python311Packages.python-dotenv
+        ];
+
+        shellHook = ''
+          echo "════════════════════════════════════════"
+          echo "Frechy Development Environment"
+          echo "════════════════════════════════════════"
+          echo "Python: $(python --version)"
+          echo ""
+          echo "Quick start:"
+          echo "  python src/main.py --list-topics"
+          echo "  python src/main.py -t pronouns.direct-object -m translation"
+          echo ""
+        '';
+      };
+    };
+}
+```
+
+### Environment Variables (.env)
+```bash
+# Required
+OPENROUTER_API_KEY=sk-or-v1-...
+
+# Optional (defaults shown)
+OPENROUTER_MODEL=anthropic/claude-3-haiku
+```
+
+### .gitignore
+```
+# Environment
+.env
+
+# Database
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+```
+
+### README.md (Basic)
+```markdown
+# Frechy
+
+French grammar practice CLI with LLM-generated exercises.
+
+## Setup
+
+1. Enter dev environment:
+   ```bash
+   nix develop
+   ```
+
+2. Create `.env` file:
+   ```bash
+   OPENROUTER_API_KEY=your_key_here
+   ```
+
+3. List available topics:
+   ```bash
+   python src/main.py --list-topics
+   ```
+
+4. Start practicing:
+   ```bash
+   python src/main.py -t pronouns.direct-object -m translation
+   ```
+
+## Practice Modes
+
+- `translation`: Translate English to French
+- `word-order`: Arrange numbered French words correctly
+
+## During Practice
+
+- Type your answer and press Enter
+- If incorrect:
+  - `R`: Retry
+  - `H`: Get a hint
+  - `S`: Show answer
+  - `Q`: Quit session
+- Press Ctrl+C anytime to end and see stats
+```
+
+---
+
+## Testing Strategy (Minimal for v1)
+
+### Manual Testing Checklist
+- [ ] --list-topics works (all topics, filtered by category)
+- [ ] Both modes work (translation, word-order)
+- [ ] All 12 pronoun topics generate valid exercises
+- [ ] Answer validation accepts correct answers (including variations)
+- [ ] Answer validation rejects incorrect answers
+- [ ] Hints are helpful and don't give away answer
+- [ ] R/H/S/Q actions all work correctly
+- [ ] Session stats are accurate
+- [ ] Database persists across runs
+- [ ] Ctrl+C ends session gracefully
+- [ ] Invalid topic shows helpful error
+- [ ] Invalid mode shows helpful error
+- [ ] Mode not supported by topic shows error
+
+### Edge Cases to Test
+- [ ] Empty user input (should re-prompt)
+- [ ] Very long user input (>500 chars)
+- [ ] French special characters (é, è, ç, à, ù, œ, etc.)
+- [ ] Word-order with various number formats (321, 3 2 1, 3-2-1)
+- [ ] Network interruption during LLM call
+- [ ] Invalid JSON from LLM (malformed response)
+- [ ] API key missing or invalid
+- [ ] Rate limiting (429 response)
+- [ ] User types non-numeric input in word-order mode
+
+---
+
+## Success Criteria
+
+v1 is complete when:
+
+**Core Functionality:**
+- [ ] User can list all topics with `--list-topics`
+- [ ] User can filter topics by category
+- [ ] User can start session with `--topic` and `--mode` flags
+- [ ] Topic and mode validation works correctly
+- [ ] LLM generates exercises on-demand for all 12 pronoun topics
+- [ ] Both modes (translation, word-order) work correctly
+- [ ] Word-order mode shuffles words randomly
+
+**Exercise Interaction:**
+- [ ] Answer validation via LLM works (lenient on spelling/accents)
+- [ ] Correct answers advance to next exercise
+- [ ] Incorrect answers show R/H/S/Q menu
+- [ ] Retry creates new attempt for same exercise
+- [ ] Hints are helpful and generated by LLM
+- [ ] Show answer displays correct answer and moves to next
+- [ ] Quit ends session gracefully
+
+**Data Persistence:**
+- [ ] Sessions saved to SQLite with correct data
+- [ ] Exercises saved with topic and content
+- [ ] Attempts saved with all details (answer, correctness, hints)
+- [ ] Session stats calculated correctly
+- [ ] Database persists across program runs
+
+**Polish:**
+- [ ] Session summary displayed at end with accurate stats
+- [ ] Rich formatting makes output readable and attractive
+- [ ] Error messages are clear and helpful
+- [ ] Ctrl+C handled gracefully
+
+**Code Quality:**
+- [ ] Code is modular and well-organized
+- [ ] Topics are extensible (easy to add new categories)
+- [ ] Total code <800 lines (excluding blank lines and comments)
+- [ ] No hardcoded values (config via .env)
+
+---
+
+## Open Questions
+
+1. **LLM Model:**
+   - Default to `anthropic/claude-3-haiku`?
+   - Or `openai/gpt-4o-mini`?
+   - Consider cost vs quality tradeoff
+
+2. **Word-Order Shuffling:**
+   - Pure random shuffle (easier to implement)?
+   - Or intelligent shuffle that creates plausible wrong answers (harder but better pedagogy)?
+   - **Decision for v1:** Pure random, intelligent shuffle for v2
+
+3. **Hint Limits:**
+   - Unlimited hints per exercise?
+   - Or limit to 2 hints then force Show/Quit?
+   - **Decision for v1:** Unlimited
+
+4. **Session Length:**
+   - Infinite exercises until user quits?
+   - Or prompt after N exercises: "Continue? [Y/n]"?
+   - **Decision for v1:** Infinite until quit
+
+5. **Running Stats:**
+   - Show stats during session (e.g., "5/7 correct so far")?
+   - Or only at the end?
+   - **Decision for v1:** Only at end (simpler)
+
+6. **Answer Normalization:**
+   - Normalize user input before sending to LLM (lowercase, strip)?
+   - Or send raw and let LLM handle?
+   - **Decision for v1:** Basic strip() only, let LLM handle rest
+
+---
+
+## Implementation Priority
+
+### Phase 1: Foundation (Essential)
+1. Set up Nix flake with dependencies
+2. Create project structure (directories and empty files)
+3. Implement `models.py` (PracticeMode enum, data classes)
+4. Implement `db.py` (schema creation, CRUD methods)
+5. Test database creation and basic operations
+
+### Phase 2: LLM & Topics (Core)
+6. Implement `llm.py` (OpenRouter client with retries)
+7. Test LLM connection with simple prompt
+8. Implement `topics/base.py` (TopicConfig)
+9. Implement `topics/__init__.py` (TopicRegistry)
+10. Implement `topics/pronouns.py` (define all 12 topics)
+11. Test topic registration and lookup
+
+### Phase 3: Prompts & Generation (Critical)
+12. Implement `prompts/pronouns.py` (all three prompt templates)
+13. Test exercise generation manually for each topic
+14. Test validation with various correct/incorrect answers
+15. Test hint generation
+
+### Phase 4: Display & UI (Important)
+16. Implement `display.py` (all display functions with Rich)
+17. Test each display function visually
+18. Implement CLI argument parsing in `main.py`
+19. Implement `--list-topics` functionality
+20. Test topic listing and filtering
+
+### Phase 5: Session Management (Core)
+21. Implement `session.py` (Session class skeleton)
+22. Implement exercise generation loop
+23. Implement translation mode presentation
+24. Implement word-order mode presentation and shuffling
+25. Test both modes end-to-end (generation + presentation)
+
+### Phase 6: User Interaction (Critical)
+26. Implement answer validation flow
+27. Implement R (retry) action
+28. Implement H (hint) action
+29. Implement S (show answer) action
+30. Implement Q (quit) action
+31. Test all actions thoroughly
+
+### Phase 7: Integration (Essential)
+32. Wire up database saves for exercises and attempts
+33. Implement session start and end
+34. Implement stats tracking
+35. Implement session summary display
+36. Test complete session flow end-to-end
+
+### Phase 8: Error Handling & Polish (Important)
+37. Add API error handling (network, rate limits, timeouts)
+38. Add user input validation and error messages
+39. Add Ctrl+C handling
+40. Test all error scenarios
+41. Fix bugs found during testing
+42. Final polish on display formatting
+
+---
+
+## Estimated Effort
+
+**By Component:**
+- Setup & Infrastructure: 2-3 hours
+- LLM & Topics System: 2-3 hours
+- Exercise Generation & Prompts: 2-3 hours
+- Display & CLI: 2-3 hours
+- Session Management: 3-4 hours
+- User Interaction & Flow: 2-3 hours
+- Error Handling & Polish: 2-3 hours
+
+**Total: 15-22 hours** for experienced Python developer
+
+**By Day (if working full-time):**
+- Day 1: Phases 1-2 (Foundation + LLM/Topics)
+- Day 2: Phases 3-4 (Prompts + Display)
+- Day 3: Phases 5-6 (Session + Interaction)
+- Day 4: Phases 7-8 (Integration + Polish)
+
+---
+
+End of Specification v1
