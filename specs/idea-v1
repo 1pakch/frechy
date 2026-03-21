@@ -1,0 +1,9 @@
+Prototype a minimal cli interactive app prototype to train the pronoun word order in french like "j'ai lui dit", "je lui ai dit", "je les ai acheté" etc inlucding possibly negations. Other errors like spelling mistakes, accents should be detected but not necessarily reported to the user. You could foresee to regimes: the one where the user gets a sentence in English (setting) and should type in french. the second regime is tat user gets numbered words and should provide the right order (I am not sure if English setting should be there as well).
+
+In the future we want a more free-form regime where I would type the text e.g. to a friend it would detect grammar topics remember them and later allow me to practice the progress. This might help you decide on architecture not to contradict the future development.
+
+We could possibly track the user sessions using a database currently in sqlite.
+
+For now it is really an experiment keep the code mninimal and tight.
+
+Set up a development environment using nix flake please. Use Python.
