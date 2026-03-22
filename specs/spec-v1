@@ -107,6 +107,12 @@ Topics use namespaced format: `{category}.{topic-key}`
 12. **pronouns.double-passe-compose**
     - "Je le lui ai donné" / "I gave it to him"
 
+#### Level 6: Advanced Combinations with Negations
+13. **pronouns.double-negation** - COD + COI with ne...pas
+    - "Je ne le lui donne pas" / "I don't give it to him"
+14. **pronouns.double-negation-passe-compose** - COD + COI with ne...pas and passé composé
+    - "Je ne le lui ai pas donné" / "I didn't give it to him"
+
 ### Practice Modes
 
 ```python
