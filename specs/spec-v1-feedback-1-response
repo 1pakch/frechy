@@ -1,0 +1,233 @@
+Response to spec-v1-feedback-1
+
+This document responds to developer feedback on spec-v1.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+1. SPEC STRUCTURE CONCERNS
+
+   Concern: The spec mixes high-level design, implementation, actual code, and
+   pedagogy. That's a bit too much but ok for experimentation.
+
+   Response: Agreed. For v1 experimentation, this mixed approach helps ensure
+   all details are captured and nothing is forgotten during implementation.
+
+   For v2 or future iterations, suggest splitting into:
+   - Architecture doc (high-level design, technology choices, module boundaries)
+   - Implementation guide (detailed code structure, specific functions/classes)
+   - Pedagogy guide (topic definitions, exercise design principles, LLM prompts)
+
+   Decision: Keep current structure for v1. Revisit if spec becomes unwieldy or
+   if we need to share different parts with different audiences.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+2. SESSION-INFLUENCED GENERATION
+
+   Concern: The API for prompting seems limiting - no way for session to
+   influence the generation (not sure if required though).
+
+   Response: Current design has generate_exercise_prompt(topic_config) which
+   only takes static topic configuration. No way to pass session state like:
+   - User's recent mistakes/patterns
+   - Current success rate
+   - Previously seen exercises (avoid repetition)
+   - Difficulty level
+
+   This is intentional for v1 to keep it simple. However, the limitation is real.
+
+   Proposed enhancement for v2:
+   ```python
+   def generate_exercise_prompt(
+       topic_config: TopicConfig,
+       session_context: SessionContext | None = None
+   ) -> str:
+       # session_context could include:
+       # - recent_mistakes: list[str]
+       # - success_rate: float
+       # - exercise_count: int
+       # - difficulty_preference: str
+   ```
+
+   Decision: Keep simple for v1. Add session context parameter in v2 when we
+   implement adaptive difficulty.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+3. HINT CONTEXT AWARENESS
+
+   Concern: Hint generation might want to take into account previous hints?
+
+   Response: Excellent point. Current design:
+   ```python
+   generate_hint_prompt(topic_config, english, correct, user)
+   ```
+
+   Has no way to know:
+   - How many hints have been given for this exercise
+   - What previous hints said
+   - If user is stuck on the same issue repeatedly
+
+   This could lead to repetitive or unhelpful hints. The LLM might give the same
+   hint twice.
+
+   Proposed enhancement:
+   ```python
+   def generate_hint_prompt(
+       topic_config: TopicConfig,
+       english: str,
+       correct: str,
+       user: str,
+       previous_hints: list[str] = None,
+       attempt_number: int = 1
+   ) -> str:
+   ```
+
+   Implementation: Session would need to track hints_given per exercise (not just
+   hints_used per attempt). Could be added to Exercise model or tracked in
+   session state.
+
+   Decision: Defer to v2. For v1, accept that hints might be repetitive. This
+   requires storing hint text in database (current schema doesn't track hint
+   content, only count).
+
+═══════════════════════════════════════════════════════════════════════════════
+
+4. SESSION STAT NAMING
+
+   Concern: In `Session`: maybe correct_on_first_try_count?
+
+   Response: Current spec has:
+   - Database column: `correct_first_try`
+   - Session attribute: `correct_first_try_count`
+   - SessionStats attribute: `correct_first_try`
+
+   This is inconsistent. "correct_on_first_try_count" is more explicit and clear.
+
+   Suggested naming:
+   - Database: `correct_on_first_try` (column names can be shorter)
+   - Session: `correct_on_first_try_count` (explicit in Python code)
+   - SessionStats: `correct_on_first_try` (matches database, used in display)
+
+   Alternative: Keep `correct_first_try` everywhere for brevity since it's clear
+   enough in context.
+
+   Decision: Use `correct_on_first_try_count` in Session class. Keep database
+   column as `correct_first_try` (shorter). Update spec accordingly.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+5. CROSS-PLATFORM NIX FLAKE
+
+   Concern: Use nix-utils to be platform independent in the flake?
+
+   Response: Current spec hardcodes:
+   ```nix
+   system = "x86_64-linux";
+   ```
+
+   This won't work on macOS (aarch64-darwin, x86_64-darwin) or other platforms.
+
+   Should use flake-utils or similar to support multiple systems:
+   ```nix
+   {
+     inputs = {
+       nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+       flake-utils.url = "github:numtide/flake-utils";
+     };
+
+     outputs = { self, nixpkgs, flake-utils }:
+       flake-utils.lib.eachDefaultSystem (system:
+         let
+           pkgs = nixpkgs.legacyPackages.${system};
+         in {
+           devShells.default = pkgs.mkShell {
+             # ...
+           };
+         }
+       );
+   }
+   ```
+
+   Decision: Update spec to use flake-utils for cross-platform support. This is
+   a trivial change and worth doing for v1.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+6. TESTING STRATEGY
+
+   Concern: Not sure what's the best approach to testing. Basic scaffolding
+   might not need it. LLM stubs for e2e? Do we need it at all now.
+
+   Response: Spec includes "Manual Testing Checklist" but no automated tests.
+
+   Testing challenges:
+   - LLM responses are non-deterministic
+   - Hard to write unit tests for prompt generation
+   - Integration tests would need LLM API mocks/stubs
+   - End-to-end tests would be expensive (real API calls)
+
+   Options:
+   a) No automated tests for v1 - just manual testing checklist
+   b) Unit tests for deterministic parts (db.py, models.py, parsing logic)
+   c) Integration tests with stubbed/recorded LLM responses
+   d) Full e2e with real API (slow, expensive, flaky)
+
+   For experimentation phase, (a) or (b) make sense. Testing LLM integration
+   properly is hard and might not be worth it for rapid prototyping.
+
+   Decision: Skip automated tests for v1. Use manual testing checklist. Add
+   note in spec that LLM interaction testing is explicitly deferred to v2 when
+   we have better understanding of failure modes.
+
+   If we do add tests, focus on:
+   - Database operations (easy to test)
+   - Input parsing and validation (deterministic)
+   - Error handling paths (no LLM needed)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+7. DATABASE SCHEMA
+
+   Concern: Did not check db schema carefully, looks ok for now on the surface.
+
+   Response: Schema is minimal but functional for v1. It has:
+   - PRIMARY KEY on all id columns (correct)
+   - FOREIGN KEY constraints (session_id -> sessions.id, exercise_id -> exercises.id)
+   - CHECK constraint on mode enum
+   - NOT NULL constraints where appropriate
+   - Timestamps with defaults
+
+   Potential considerations:
+   - No additional indexes beyond PKs (fine for v1, might need them later)
+   - `user_name` defaults to 'ilya' (hardcoded, acknowledged in non-goals)
+   - No schema version tracking (makes migrations harder later)
+   - SQLite needs PRAGMA foreign_keys=ON to enforce FK constraints
+
+   Missing but not critical:
+   - No unique constraints (e.g., could start multiple concurrent sessions)
+   - Soft deletes (no delete operations in v1)
+
+   Schema is adequate for v1. Main risk is migration pain when we add features
+   in v2 (no versioning, no migration framework).
+
+   Decision: Keep current schema for v1. Ensure db.py enables foreign key
+   enforcement with PRAGMA. Add TODO comment about schema versioning for future.
+   If we continue past v1, consider:
+   - Alembic or similar migration tool
+   - Schema version table
+   - Indexes for common queries (session lookups, stats aggregation)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+SUMMARY OF CHANGES TO SPEC-V1:
+
+1. No change needed (acknowledged as experimental structure)
+2. Add note about session context limitation in "Future Enhancements"
+3. Add note about hint context limitation in "Future Enhancements"
+4. Rename `correct_first_try_count` to `correct_on_first_try_count` in Session
+5. Update flake.nix to use flake-utils for cross-platform support
+6. Add explicit note that automated testing is deferred to v2
+7. Add TODO comment about schema versioning in future
+
+None of these are blocking issues for v1 implementation.

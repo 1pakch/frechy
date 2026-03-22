@@ -1,0 +1,15 @@
+This is developer's feedback to `spec-v1` which was AI-generated.
+
+1. The spec mixes high-level deign, the implementation, the actual code and pedagogy. That's a bit too much but I also said we are just experimenting. We might want a better structure but ok.
+
+2. The api for prompting seems a bit limiting e.g. no way for session to influence the generation (not sure if it required though).
+
+3. Hint generation might want to take into account previous hints?
+
+4. In `Session`: maybe correct_on_first_try_count?
+
+5. Use nix-utils to be platofrm independent in the flake?
+
+6. I am not sure what's the best approach to testing. Basic scaffolding might not need it. LLM stubs for e2e? Do we need it at all now.
+
+7. Did not check db schema carefully looks ok for now on the surface.
