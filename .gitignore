@@ -1,5 +1,6 @@
 # Environment
 .env
+keys.env
 
 # Database
 *.db
