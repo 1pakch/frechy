@@ -7,6 +7,13 @@ from datetime import datetime
 
 sys.path.insert(0, '/home/ilya/repos/frechy/src')
 
+try:
+    import termios
+    import tty
+except ImportError:
+    termios = None
+    tty = None
+
 from db import Database
 from llm import LLMClient
 from models import Exercise, PracticeMode, SessionStats
@@ -101,29 +108,35 @@ class Session:
         """
         if self.mode == PracticeMode.TRANSLATION:
             display.show_exercise_translation(exercise, self.exercise_count)
+            key_mapping = None
             shuffled_words = None
         else:
             shuffled_words = self.shuffle_words(exercise.correct_french)
-            display.show_exercise_word_order(exercise, shuffled_words, self.exercise_count)
+            key_mapping = self.create_key_mapping(shuffled_words)
+            display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
 
         attempt_num = 1
-        hints_used = 0
+        total_hints_used = 0
 
         while True:
-            user_input = input("> ").strip()
-
-            # Handle empty input
-            if not user_input:
-                continue
-
-            # Convert word-order input to actual sentence
+            # Get user input
             if self.mode == PracticeMode.WORD_ORDER:
-                user_answer = self.reconstruct_from_indices(user_input, shuffled_words)
+                user_answer, hints_requested = self.get_word_order_input(key_mapping, exercise)
+
+                # If user requested hint
                 if user_answer is None:
-                    display.console.print("[yellow]Enter numbers like: 3 2 1[/yellow]")
+                    hint = self.generate_hint(exercise, "")
+                    display.show_hint(hint)
+                    total_hints_used = hints_requested
+                    # Show exercise again and continue
+                    display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
                     continue
             else:
+                user_input = input("> ").strip()
+                if not user_input:
+                    continue
                 user_answer = user_input
+                hints_requested = 0
 
             # Validate answer via LLM
             is_correct, feedback = self.validate_answer(exercise, user_answer)
@@ -134,7 +147,7 @@ class Session:
                 attempt_number=attempt_num,
                 user_answer=user_answer,
                 is_correct=is_correct,
-                hints_used=hints_used
+                hints_used=total_hints_used
             )
 
             if is_correct:
@@ -146,12 +159,18 @@ class Session:
 
                 if action == "retry":
                     attempt_num += 1
-                    hints_used = 0
+                    total_hints_used = 0
+                    # Show exercise again for word-order mode
+                    if self.mode == PracticeMode.WORD_ORDER:
+                        display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
                     continue
                 elif action == "hint":
                     hint = self.generate_hint(exercise, user_answer)
                     display.show_hint(hint)
-                    hints_used += 1
+                    total_hints_used += 1
+                    # Show exercise again for word-order mode
+                    if self.mode == PracticeMode.WORD_ORDER:
+                        display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
                     continue
                 elif action == "show":
                     display.show_answer(exercise.correct_french)
@@ -173,6 +192,91 @@ class Session:
         shuffled = words.copy()
         random.shuffle(shuffled)
         return shuffled
+
+    def create_key_mapping(self, words: list[str]) -> dict[str, str]:
+        """Create randomized key mapping for words using home row keys.
+
+        Args:
+            words: List of words to map
+
+        Returns:
+            Dict mapping keys to words (e.g., {'a': 'le', 's': 'chat'})
+        """
+        # Home row keys, then top row if needed
+        available_keys = list('asdfghjkl;') + list('qwertyuiop')
+
+        if len(words) > len(available_keys):
+            raise ValueError(f"Too many words ({len(words)}), max supported is {len(available_keys)}")
+
+        # Shuffle keys and assign to words
+        keys = available_keys[:len(words)]
+        random.shuffle(keys)
+
+        return {key: word for key, word in zip(keys, words)}
+
+    def get_char(self) -> str:
+        """Get a single character from stdin without echo.
+
+        Returns:
+            Single character string
+        """
+        if termios is None or tty is None:
+            # Fallback for systems without termios (Windows)
+            return sys.stdin.read(1)
+
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            char = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return char
+
+    def get_word_order_input(self, key_mapping: dict[str, str], exercise: Exercise) -> tuple[str | None, int]:
+        """Interactive word-order input with live preview.
+
+        Args:
+            key_mapping: Dict mapping keys to words
+            exercise: Current exercise
+
+        Returns:
+            Tuple of (user_answer, hints_used). user_answer is None if user requested hint.
+        """
+        selected_words = []
+        hints_used = 0
+        reverse_mapping = {word: key for key, word in key_mapping.items()}
+
+        # Show initial preview
+        display.show_word_order_preview(selected_words)
+
+        while True:
+            char = self.get_char()
+
+            # Handle special characters
+            if char == '\x7f' or char == '\x08':  # Backspace/Delete
+                if selected_words:
+                    selected_words.pop()
+                    display.show_word_order_preview(selected_words)
+            elif char == '?':
+                # Request hint
+                print()  # New line after preview
+                return None, hints_used + 1
+            elif char == '\r' or char == '\n':  # Enter
+                # Submit answer
+                if len(selected_words) == len(key_mapping):
+                    print()  # New line after preview
+                    return " ".join(selected_words), hints_used
+            elif char == '\x03':  # Ctrl+C
+                print()
+                self.end()
+                sys.exit(0)
+            elif char in key_mapping:
+                # Valid key pressed - add word if not already selected
+                word = key_mapping[char]
+                if word not in selected_words:
+                    selected_words.append(word)
+                    display.show_word_order_preview(selected_words)
 
     def reconstruct_from_indices(self, user_input: str, words: list[str]) -> str | None:
         """Reconstruct sentence from user's number input.

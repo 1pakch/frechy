@@ -19,13 +19,39 @@ def show_exercise_translation(exercise: Exercise, num: int):
     console.print(f"[cyan]{exercise.english_text}[/cyan]\n")
 
 
-def show_exercise_word_order(exercise: Exercise, shuffled_words: list[str], num: int):
-    """Display word-order mode exercise."""
+def show_exercise_word_order(exercise: Exercise, shuffled_words: list[str], key_mapping: dict[str, str], num: int):
+    """Display word-order mode exercise with key-based selection.
+
+    Args:
+        exercise: Exercise instance with English text
+        shuffled_words: List of shuffled French words (in display order)
+        key_mapping: Dict mapping keys to words (e.g., {'a': 'le', 's': 'chat'})
+        num: Exercise number
+    """
     console.print(f"\n[bold]Exercise {num}[/bold]\n")
     console.print("Put these words in correct order:")
-    for i, word in enumerate(shuffled_words, 1):
-        console.print(f"{i}. {word}")
-    console.print()
+
+    # Display words with their assigned keys, in the order of shuffled_words
+    # Create reverse mapping for lookup
+    reverse_mapping = {word: key for key, word in key_mapping.items()}
+    word_displays = [f"({reverse_mapping[word]}) {word}" for word in shuffled_words]
+    console.print("  ".join(word_displays))
+
+    console.print(f"\n[dim]English: {exercise.english_text}[/dim]")
+    console.print(f"[dim]Press ? for hint, Backspace to undo[/dim]\n")
+
+
+def show_word_order_preview(selected_words: list[str]):
+    """Display live preview of selected words in word-order mode.
+
+    Args:
+        selected_words: List of words selected so far
+    """
+    if selected_words:
+        preview = " ".join(selected_words) + " _"
+    else:
+        preview = "_"
+    console.print(f"\r[cyan]Your answer: {preview}[/cyan]", end="")
 
 
 def show_correct():
