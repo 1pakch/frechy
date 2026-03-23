@@ -1,0 +1,5 @@
+1. The UX feels incredibly better after the touch key and progressive display.
+2. The message "Your ansnwer" reappears after ach key press
+3. Not sure if enter is needed after the last word. And there is no message now about pressing it.
+4. Terminating a session via ctrl-c still keeps the last exercise in the count and logs the attempt
+   (not sure if it's desired or fair).
