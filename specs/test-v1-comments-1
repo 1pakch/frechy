@@ -1,0 +1,31 @@
+I tried the app with `--topic pronouns.double --mode word-order` my observations
+
+1. The app should show the order of the words you seleted and react to backspace by removing the last word
+2. Ideally the app should respond to key presses in all input situations except literal text input
+3. There should be a way to fo directly to a hint when prompted a question e.g. if you don't know an answer
+4. It was not possible to move the cursor while typing which is really weird
+5. It is hard to read long sentences when shown like a vertical list. We should also show the English version.
+6. The non-acceptance of an answer (below) was unclear. But this sould disappear with p1
+
+
+Exercise 1
+
+Put these words in correct order:
+1. la
+2. vais
+3. présenter
+4. te
+5. fête.
+6. Je
+7. ce
+8. soir
+9. à
+10. la
+
+> 6 2 4 9 1 7 8
+Enter numbers like: 3 2 1
+> 6 2 4 3 9 1 7 8
+Enter numbers like: 3 2 1
+> 6 2 4 1 3 9 10 7 8            
+Enter numbers like: 3 2 1
+
