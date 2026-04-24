@@ -27,6 +27,14 @@ from rich.live import Live
 import display
 
 
+# Terminal control characters
+BACKSPACE = '\x7f'
+DELETE = '\x08'
+ENTER = '\r'
+NEWLINE = '\n'
+CTRL_C = '\x03'
+
+
 class Session:
     """Manages a practice session with exercises and user interaction."""
 
@@ -248,43 +256,56 @@ class Session:
         hints_used = 0
 
         # Create key-to-index mapping from key_mapping
-        # key_mapping was created by zipping keys with shuffled_words, so we can recreate the indices
-        key_to_index = {}
-        for idx, (key, word) in enumerate(key_mapping.items()):
-            key_to_index[key] = idx
-
-        # Get the words list in the original order for reconstruction
+        key_to_index = {key: idx for idx, (key, _) in enumerate(key_mapping.items())}
         shuffled_words = list(key_mapping.values())
 
+        def handle_backspace(live):
+            """Remove last selected word."""
+            if selected_indices:
+                selected_indices.pop()
+                live.update(display.format_word_order_live(shuffled_words, key_mapping, selected_indices))
+                live.refresh()
+
+        def handle_hint():
+            """Request hint from user."""
+            return None, hints_used + 1
+
+        def handle_submit():
+            """Submit answer if all words selected."""
+            if len(selected_indices) == len(key_mapping):
+                selected_words = [shuffled_words[i] for i in selected_indices]
+                return " ".join(selected_words), hints_used
+            return None
+
+        def handle_key_press(char, live):
+            """Add word for pressed key if not already selected."""
+            idx = key_to_index[char]
+            if idx not in selected_indices:
+                selected_indices.append(idx)
+                live.update(display.format_word_order_live(shuffled_words, key_mapping, selected_indices))
+                live.refresh()
+
         # Use Rich's Live display for proper in-place updates
-        selected_words = []
-        with Live(display.format_word_order_preview(selected_words), refresh_per_second=10) as live:
+        with Live(
+            display.format_word_order_live(shuffled_words, key_mapping, selected_indices),
+            auto_refresh=False
+        ) as live:
             while True:
                 char = self.get_char()
 
-                # Handle special characters
-                if char == '\x7f' or char == '\x08':  # Backspace/Delete
-                    if selected_indices:
-                        selected_indices.pop()
-                        selected_words = [shuffled_words[i] for i in selected_indices]
-                        live.update(display.format_word_order_preview(selected_words))
+                if char in (BACKSPACE, DELETE):
+                    handle_backspace(live)
                 elif char == '?':
-                    # Request hint
-                    return None, hints_used + 1
-                elif char == '\r' or char == '\n':  # Enter
-                    # Submit answer
-                    if len(selected_indices) == len(key_mapping):
-                        return " ".join(selected_words), hints_used
-                elif char == '\x03':  # Ctrl+C
+                    return handle_hint()
+                elif char in (ENTER, NEWLINE):
+                    result = handle_submit()
+                    if result:
+                        return result
+                elif char == CTRL_C:
                     self.end()
                     sys.exit(0)
                 elif char in key_mapping:
-                    # Valid key pressed - add word if this key not already used
-                    idx = key_to_index[char]
-                    if idx not in selected_indices:
-                        selected_indices.append(idx)
-                        selected_words = [shuffled_words[i] for i in selected_indices]
-                        live.update(display.format_word_order_preview(selected_words))
+                    handle_key_press(char, live)
 
     def reconstruct_from_indices(self, user_input: str, words: list[str]) -> str | None:
         """Reconstruct sentence from user's number input.

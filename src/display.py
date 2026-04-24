@@ -20,24 +20,17 @@ def show_exercise_translation(exercise: Exercise, num: int):
 
 
 def show_exercise_word_order(exercise: Exercise, shuffled_words: list[str], key_mapping: dict[str, str], num: int):
-    """Display word-order mode exercise with key-based selection.
+    """Display word-order mode exercise header and footer.
 
     Args:
         exercise: Exercise instance with English text
-        shuffled_words: List of shuffled French words (in display order)
-        key_mapping: Dict mapping keys to words (e.g., {'a': 'le', 's': 'chat'})
+        shuffled_words: List of shuffled French words (not used, kept for compatibility)
+        key_mapping: Dict mapping keys to words (not used, kept for compatibility)
         num: Exercise number
     """
     console.print(f"\n[bold]Exercise {num}[/bold]\n")
-    console.print("Put these words in correct order:")
-
-    # Display words with their assigned keys, in the order of shuffled_words
-    # Create reverse mapping for lookup
-    reverse_mapping = {word: key for key, word in key_mapping.items()}
-    word_displays = [f"({reverse_mapping[word]}) {word}" for word in shuffled_words]
-    console.print("  ".join(word_displays))
-
-    console.print(f"\n[dim]English: {exercise.english_text}[/dim]")
+    console.print("Put these words in correct order:\n")
+    console.print(f"[dim]English: {exercise.english_text}[/dim]")
     console.print(f"[dim]Press ? for hint, Backspace to undo[/dim]\n")
 
 
@@ -55,6 +48,43 @@ def format_word_order_preview(selected_words: list[str]) -> str:
     else:
         preview = "_"
     return f"[cyan]Your answer: {preview}[/cyan]"
+
+
+def format_word_order_live(
+    shuffled_words: list[str],
+    key_mapping: dict[str, str],
+    selected_indices: list[int]
+) -> str:
+    """Format live display for word-order mode with greyed-out selected words.
+
+    Args:
+        shuffled_words: List of shuffled French words (in display order)
+        key_mapping: Dict mapping keys to words
+        selected_indices: List of indices that have been selected
+
+    Returns:
+        Formatted string with word list and answer preview
+    """
+    # Create key-to-index mapping
+    key_to_index = {key: idx for idx, (key, _) in enumerate(key_mapping.items())}
+    index_to_key = {idx: key for key, idx in key_to_index.items()}
+
+    # Formatting lambdas
+    format_selected = lambda k, w: f"[dim]({k}) {w}[/dim]"
+    format_available = lambda k, w: f"({k}) {w}"
+
+    # Format each word with its key, greying out selected ones
+    word_displays = []
+    for idx, word in enumerate(shuffled_words):
+        key = index_to_key[idx]
+        formatter = format_selected if idx in selected_indices else format_available
+        word_displays.append(formatter(key, word))
+
+    # Reconstruct selected words and format preview
+    selected_words = [shuffled_words[i] for i in selected_indices]
+    preview = " ".join(selected_words) + " _" if selected_words else "_"
+
+    return f"{'  '.join(word_displays)}\n\n[cyan]Your answer: {preview}[/cyan]"
 
 
 def show_correct():
