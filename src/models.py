@@ -11,6 +11,7 @@ class PracticeMode(str, Enum):
     - TRANSLATION: User translates English to French
     - WORD_ORDER: User arranges numbered French words in correct order
     """
+
     TRANSLATION = "translation"
     WORD_ORDER = "word-order"
 
@@ -18,6 +19,7 @@ class PracticeMode(str, Enum):
 @dataclass
 class Exercise:
     """Represents a single practice exercise."""
+
     id: int | None
     session_id: int
     topic: str
@@ -29,6 +31,7 @@ class Exercise:
 @dataclass
 class Attempt:
     """Represents a user attempt at an exercise."""
+
     id: int | None
     exercise_id: int
     attempt_number: int
@@ -41,6 +44,7 @@ class Attempt:
 @dataclass
 class SessionStats:
     """Session statistics for display at the end."""
+
     total_exercises: int
     correct_first_try: int
     duration_minutes: int

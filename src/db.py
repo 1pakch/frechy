@@ -61,7 +61,7 @@ class Database:
         """Create session, return session_id."""
         cursor = self.conn.execute(
             "INSERT INTO sessions (user_name, topic, mode) VALUES (?, ?, ?)",
-            (user_name, topic, mode)
+            (user_name, topic, mode),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -72,21 +72,26 @@ class Database:
             """INSERT INTO exercises
                (session_id, topic, english_text, correct_french)
                VALUES (?, ?, ?, ?)""",
-            (exercise.session_id, exercise.topic,
-             exercise.english_text, exercise.correct_french)
+            (exercise.session_id, exercise.topic, exercise.english_text, exercise.correct_french),
         )
         self.conn.commit()
         exercise.id = cursor.lastrowid
         return exercise.id
 
-    def create_attempt(self, exercise_id: int, attempt_number: int,
-                      user_answer: str, is_correct: bool, hints_used: int) -> int:
+    def create_attempt(
+        self,
+        exercise_id: int,
+        attempt_number: int,
+        user_answer: str,
+        is_correct: bool,
+        hints_used: int,
+    ) -> int:
         """Create attempt, return attempt_id."""
         cursor = self.conn.execute(
             """INSERT INTO attempts
                (exercise_id, attempt_number, user_answer, is_correct, hints_used)
                VALUES (?, ?, ?, ?, ?)""",
-            (exercise_id, attempt_number, user_answer, is_correct, hints_used)
+            (exercise_id, attempt_number, user_answer, is_correct, hints_used),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -99,17 +104,14 @@ class Database:
                    total_exercises = ?,
                    correct_first_try = ?
                WHERE id = ?""",
-            (stats.total_exercises, stats.correct_first_try, session_id)
+            (stats.total_exercises, stats.correct_first_try, session_id),
         )
         self.conn.commit()
 
     def get_session_start_time(self, session_id: int) -> datetime:
         """Get session start time for duration calculation."""
-        cursor = self.conn.execute(
-            "SELECT start_time FROM sessions WHERE id = ?",
-            (session_id,)
-        )
+        cursor = self.conn.execute("SELECT start_time FROM sessions WHERE id = ?", (session_id,))
         row = cursor.fetchone()
         if row:
-            return datetime.fromisoformat(row['start_time'])
+            return datetime.fromisoformat(row["start_time"])
         return datetime.now()

@@ -29,13 +29,10 @@ class LLMClient:
                     self.base_url,
                     headers={
                         "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
                     },
-                    json={
-                        "model": self.model,
-                        "messages": [{"role": "user", "content": prompt}]
-                    },
-                    timeout=self.timeout
+                    json={"model": self.model, "messages": [{"role": "user", "content": prompt}]},
+                    timeout=self.timeout,
                 )
 
                 if response.status_code == 401:
@@ -54,13 +51,13 @@ class LLMClient:
 
             except httpx.TimeoutException:
                 if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
                     continue
                 raise Exception("Request timeout")
 
             except httpx.NetworkError:
                 if attempt < self.max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
                     continue
                 raise Exception("Network error")
 

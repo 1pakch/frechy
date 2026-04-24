@@ -17,21 +17,17 @@ from .db import Database
 from .llm import LLMClient
 from .models import Exercise, PracticeMode, SessionStats
 from .topics.base import TopicConfig
-from .prompts.pronouns import (
-    generate_exercise_prompt,
-    validate_answer_prompt,
-    generate_hint_prompt
-)
+from .prompts.pronouns import generate_exercise_prompt, validate_answer_prompt, generate_hint_prompt
 from rich.live import Live
 from . import display
 
 
 # Terminal control characters
-BACKSPACE = '\x7f'
-DELETE = '\x08'
-ENTER = '\r'
-NEWLINE = '\n'
-CTRL_C = '\x03'
+BACKSPACE = "\x7f"
+DELETE = "\x08"
+ENTER = "\r"
+NEWLINE = "\n"
+CTRL_C = "\x03"
 
 
 class Session:
@@ -50,9 +46,7 @@ class Session:
         self.mode = mode
         self.llm = LLMClient()
         self.session_id = self.db.create_session(
-            user_name="ilya",
-            topic=topic_config.full_key,
-            mode=mode.value
+            user_name="ilya", topic=topic_config.full_key, mode=mode.value
         )
         self.exercise_count = 0
         self.correct_first_try_count = 0
@@ -96,7 +90,7 @@ class Session:
                     session_id=self.session_id,
                     topic=self.topic_config.full_key,
                     english_text=data["english"],
-                    correct_french=data["correct_french"]
+                    correct_french=data["correct_french"],
                 )
             except json.JSONDecodeError:
                 if attempt < max_attempts - 1:
@@ -121,7 +115,9 @@ class Session:
         else:
             shuffled_words = self.shuffle_words(exercise.correct_french)
             key_mapping = self.create_key_mapping(shuffled_words)
-            display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
+            display.show_exercise_word_order(
+                exercise, shuffled_words, key_mapping, self.exercise_count
+            )
 
         attempt_num = 1
         total_hints_used = 0
@@ -137,7 +133,9 @@ class Session:
                     display.show_hint(hint)
                     total_hints_used = hints_requested
                     # Show exercise again and continue
-                    display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
+                    display.show_exercise_word_order(
+                        exercise, shuffled_words, key_mapping, self.exercise_count
+                    )
                     continue
             else:
                 user_input = input("> ").strip()
@@ -155,7 +153,7 @@ class Session:
                 attempt_number=attempt_num,
                 user_answer=user_answer,
                 is_correct=is_correct,
-                hints_used=total_hints_used
+                hints_used=total_hints_used,
             )
 
             if is_correct:
@@ -170,7 +168,9 @@ class Session:
                     total_hints_used = 0
                     # Show exercise again for word-order mode
                     if self.mode == PracticeMode.WORD_ORDER:
-                        display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
+                        display.show_exercise_word_order(
+                            exercise, shuffled_words, key_mapping, self.exercise_count
+                        )
                     continue
                 elif action == "hint":
                     hint = self.generate_hint(exercise, user_answer)
@@ -178,7 +178,9 @@ class Session:
                     total_hints_used += 1
                     # Show exercise again for word-order mode
                     if self.mode == PracticeMode.WORD_ORDER:
-                        display.show_exercise_word_order(exercise, shuffled_words, key_mapping, self.exercise_count)
+                        display.show_exercise_word_order(
+                            exercise, shuffled_words, key_mapping, self.exercise_count
+                        )
                     continue
                 elif action == "show":
                     display.show_answer(exercise.correct_french)
@@ -211,13 +213,15 @@ class Session:
             Dict mapping keys to words (e.g., {'a': 'le', 's': 'chat'})
         """
         # Home row keys, then top row if needed
-        available_keys = list('asdfghjkl;') + list('qwertyuiop')
+        available_keys = list("asdfghjkl;") + list("qwertyuiop")
 
         if len(words) > len(available_keys):
-            raise ValueError(f"Too many words ({len(words)}), max supported is {len(available_keys)}")
+            raise ValueError(
+                f"Too many words ({len(words)}), max supported is {len(available_keys)}"
+            )
 
         # Shuffle keys and assign to words
-        keys = available_keys[:len(words)]
+        keys = available_keys[: len(words)]
         random.shuffle(keys)
 
         return {key: word for key, word in zip(keys, words)}
@@ -241,7 +245,9 @@ class Session:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return char
 
-    def get_word_order_input(self, key_mapping: dict[str, str], exercise: Exercise) -> tuple[str | None, int]:
+    def get_word_order_input(
+        self, key_mapping: dict[str, str], exercise: Exercise
+    ) -> tuple[str | None, int]:
         """Interactive word-order input with live preview.
 
         Args:
@@ -262,7 +268,9 @@ class Session:
             """Remove last selected word."""
             if selected_indices:
                 selected_indices.pop()
-                live.update(display.format_word_order_live(shuffled_words, key_mapping, selected_indices))
+                live.update(
+                    display.format_word_order_live(shuffled_words, key_mapping, selected_indices)
+                )
                 live.refresh()
 
         def handle_hint():
@@ -281,20 +289,22 @@ class Session:
             idx = key_to_index[char]
             if idx not in selected_indices:
                 selected_indices.append(idx)
-                live.update(display.format_word_order_live(shuffled_words, key_mapping, selected_indices))
+                live.update(
+                    display.format_word_order_live(shuffled_words, key_mapping, selected_indices)
+                )
                 live.refresh()
 
         # Use Rich's Live display for proper in-place updates
         with Live(
             display.format_word_order_live(shuffled_words, key_mapping, selected_indices),
-            auto_refresh=False
+            auto_refresh=False,
         ) as live:
             while True:
                 char = self.get_char()
 
                 if char in (BACKSPACE, DELETE):
                     handle_backspace(live)
-                elif char == '?':
+                elif char == "?":
                     return handle_hint()
                 elif char in (ENTER, NEWLINE):
                     result = handle_submit()
@@ -345,11 +355,7 @@ class Session:
             Tuple of (is_correct, feedback)
         """
         try:
-            prompt = validate_answer_prompt(
-                self.topic_config,
-                exercise.correct_french,
-                user_answer
-            )
+            prompt = validate_answer_prompt(self.topic_config, exercise.correct_french, user_answer)
             response = self.llm.complete(prompt)
             data = self.llm.parse_json(response)
             return data.get("is_correct", False), data.get("feedback", "")
@@ -369,10 +375,7 @@ class Session:
         """
         try:
             prompt = generate_hint_prompt(
-                self.topic_config,
-                exercise.english_text,
-                exercise.correct_french,
-                user_answer
+                self.topic_config, exercise.english_text, exercise.correct_french, user_answer
             )
             return self.llm.complete(prompt)
         except Exception:
@@ -392,11 +395,7 @@ class Session:
         stats = SessionStats(
             total_exercises=self.exercise_count,
             correct_first_try=self.correct_first_try_count,
-            duration_minutes=self.calculate_duration()
+            duration_minutes=self.calculate_duration(),
         )
         self.db.end_session(self.session_id, stats)
-        display.show_session_summary(
-            stats,
-            self.topic_config.full_key,
-            self.mode.value
-        )
+        display.show_session_summary(stats, self.topic_config.full_key, self.mode.value)

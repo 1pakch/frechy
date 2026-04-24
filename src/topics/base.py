@@ -28,12 +28,13 @@ class TopicConfig:
             supported_modes=[PracticeMode.TRANSLATION, PracticeMode.WORD_ORDER]
         )
     """
-    category: str                     # "pronouns", "articles", "subjunctive"
-    key: str                          # "direct-object", "negation-reflexive"
-    name: str                         # Human-readable: "Direct Object Pronouns"
-    description: str                  # For --list-topics display
-    grammar_focus: list[str]          # Hints for LLM about what to focus on
-    prompt_hints: str                 # Additional context for LLM generation
+
+    category: str  # "pronouns", "articles", "subjunctive"
+    key: str  # "direct-object", "negation-reflexive"
+    name: str  # Human-readable: "Direct Object Pronouns"
+    description: str  # For --list-topics display
+    grammar_focus: list[str]  # Hints for LLM about what to focus on
+    prompt_hints: str  # Additional context for LLM generation
     supported_modes: list[PracticeMode] = field(
         default_factory=lambda: [PracticeMode.TRANSLATION, PracticeMode.WORD_ORDER]
     )

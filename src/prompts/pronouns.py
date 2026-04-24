@@ -15,7 +15,7 @@ def generate_exercise_prompt(topic_config: TopicConfig) -> str:
     return f"""You are a French language teacher creating exercises for intermediate learners.
 
 Topic: {topic_config.name}
-Grammar Focus: {', '.join(topic_config.grammar_focus)}
+Grammar Focus: {", ".join(topic_config.grammar_focus)}
 
 {topic_config.prompt_hints}
 
@@ -51,7 +51,7 @@ def validate_answer_prompt(topic_config: TopicConfig, correct: str, user: str) -
     return f"""You are evaluating a French learner's answer for grammar accuracy.
 
 Topic: {topic_config.name}
-Grammar Focus: {', '.join(topic_config.grammar_focus)}
+Grammar Focus: {", ".join(topic_config.grammar_focus)}
 
 Correct answer: {correct}
 User's answer: {user}
