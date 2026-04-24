@@ -244,35 +244,46 @@ class Session:
         Returns:
             Tuple of (user_answer, hints_used). user_answer is None if user requested hint.
         """
-        selected_words = []
+        selected_indices = []
         hints_used = 0
-        reverse_mapping = {word: key for key, word in key_mapping.items()}
+
+        # Create key-to-index mapping from key_mapping
+        # key_mapping was created by zipping keys with shuffled_words, so we can recreate the indices
+        key_to_index = {}
+        for idx, (key, word) in enumerate(key_mapping.items()):
+            key_to_index[key] = idx
+
+        # Get the words list in the original order for reconstruction
+        shuffled_words = list(key_mapping.values())
 
         # Use Rich's Live display for proper in-place updates
+        selected_words = []
         with Live(display.format_word_order_preview(selected_words), refresh_per_second=10) as live:
             while True:
                 char = self.get_char()
 
                 # Handle special characters
                 if char == '\x7f' or char == '\x08':  # Backspace/Delete
-                    if selected_words:
-                        selected_words.pop()
+                    if selected_indices:
+                        selected_indices.pop()
+                        selected_words = [shuffled_words[i] for i in selected_indices]
                         live.update(display.format_word_order_preview(selected_words))
                 elif char == '?':
                     # Request hint
                     return None, hints_used + 1
                 elif char == '\r' or char == '\n':  # Enter
                     # Submit answer
-                    if len(selected_words) == len(key_mapping):
+                    if len(selected_indices) == len(key_mapping):
                         return " ".join(selected_words), hints_used
                 elif char == '\x03':  # Ctrl+C
                     self.end()
                     sys.exit(0)
                 elif char in key_mapping:
-                    # Valid key pressed - add word if not already selected
-                    word = key_mapping[char]
-                    if word not in selected_words:
-                        selected_words.append(word)
+                    # Valid key pressed - add word if this key not already used
+                    idx = key_to_index[char]
+                    if idx not in selected_indices:
+                        selected_indices.append(idx)
+                        selected_words = [shuffled_words[i] for i in selected_indices]
                         live.update(display.format_word_order_preview(selected_words))
 
     def reconstruct_from_indices(self, user_input: str, words: list[str]) -> str | None:
