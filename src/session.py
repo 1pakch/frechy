@@ -23,6 +23,7 @@ from prompts.pronouns import (
     validate_answer_prompt,
     generate_hint_prompt
 )
+from rich.live import Live
 import display
 
 
@@ -247,36 +248,32 @@ class Session:
         hints_used = 0
         reverse_mapping = {word: key for key, word in key_mapping.items()}
 
-        # Show initial preview
-        display.show_word_order_preview(selected_words)
+        # Use Rich's Live display for proper in-place updates
+        with Live(display.format_word_order_preview(selected_words), refresh_per_second=10) as live:
+            while True:
+                char = self.get_char()
 
-        while True:
-            char = self.get_char()
-
-            # Handle special characters
-            if char == '\x7f' or char == '\x08':  # Backspace/Delete
-                if selected_words:
-                    selected_words.pop()
-                    display.show_word_order_preview(selected_words)
-            elif char == '?':
-                # Request hint
-                print()  # New line after preview
-                return None, hints_used + 1
-            elif char == '\r' or char == '\n':  # Enter
-                # Submit answer
-                if len(selected_words) == len(key_mapping):
-                    print()  # New line after preview
-                    return " ".join(selected_words), hints_used
-            elif char == '\x03':  # Ctrl+C
-                print()
-                self.end()
-                sys.exit(0)
-            elif char in key_mapping:
-                # Valid key pressed - add word if not already selected
-                word = key_mapping[char]
-                if word not in selected_words:
-                    selected_words.append(word)
-                    display.show_word_order_preview(selected_words)
+                # Handle special characters
+                if char == '\x7f' or char == '\x08':  # Backspace/Delete
+                    if selected_words:
+                        selected_words.pop()
+                        live.update(display.format_word_order_preview(selected_words))
+                elif char == '?':
+                    # Request hint
+                    return None, hints_used + 1
+                elif char == '\r' or char == '\n':  # Enter
+                    # Submit answer
+                    if len(selected_words) == len(key_mapping):
+                        return " ".join(selected_words), hints_used
+                elif char == '\x03':  # Ctrl+C
+                    self.end()
+                    sys.exit(0)
+                elif char in key_mapping:
+                    # Valid key pressed - add word if not already selected
+                    word = key_mapping[char]
+                    if word not in selected_words:
+                        selected_words.append(word)
+                        live.update(display.format_word_order_preview(selected_words))
 
     def reconstruct_from_indices(self, user_input: str, words: list[str]) -> str | None:
         """Reconstruct sentence from user's number input.

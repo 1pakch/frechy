@@ -41,17 +41,20 @@ def show_exercise_word_order(exercise: Exercise, shuffled_words: list[str], key_
     console.print(f"[dim]Press ? for hint, Backspace to undo[/dim]\n")
 
 
-def show_word_order_preview(selected_words: list[str]):
-    """Display live preview of selected words in word-order mode.
+def format_word_order_preview(selected_words: list[str]) -> str:
+    """Format live preview of selected words in word-order mode.
 
     Args:
         selected_words: List of words selected so far
+
+    Returns:
+        Formatted string for display
     """
     if selected_words:
         preview = " ".join(selected_words) + " _"
     else:
         preview = "_"
-    console.print(f"\r[cyan]Your answer: {preview}[/cyan]", end="")
+    return f"[cyan]Your answer: {preview}[/cyan]"
 
 
 def show_correct():
