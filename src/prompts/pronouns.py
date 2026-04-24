@@ -1,9 +1,6 @@
 """Pronoun-specific prompt templates for LLM interactions."""
 
-import sys
-sys.path.insert(0, '/home/ilya/repos/frechy/src')
-
-from topics.base import TopicConfig
+from ..topics.base import TopicConfig
 
 
 def generate_exercise_prompt(topic_config: TopicConfig) -> str:

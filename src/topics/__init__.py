@@ -1,9 +1,6 @@
 """Central registry for all available practice topics."""
 
-import sys
-sys.path.insert(0, '/home/ilya/repos/frechy/src')
-
-from topics.base import TopicConfig
+from .base import TopicConfig
 
 
 class TopicRegistry:

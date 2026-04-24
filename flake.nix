@@ -9,15 +9,21 @@
     let
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
+      pythonEnv = pkgs.python3.withPackages (ps: [ 
+        ps.httpx
+        ps.rich
+        ps.python-dotenv
+      ]);
     in
     {
       devShells.${system}.default = pkgs.mkShell {
-        packages = with pkgs; [
-          python3
-          python3Packages.httpx
-          python3Packages.rich
-          python3Packages.python-dotenv
+        buildInputs = [
+          pythonEnv
+          pkgs.ruff
         ];
+        shellHook = ''
+          export PYTHONPATH="${self}"
+        '';
       };
     };
 }

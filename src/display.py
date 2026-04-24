@@ -1,12 +1,9 @@
 """Rich-based formatting and display utilities."""
 
-import sys
-sys.path.insert(0, '/home/ilya/repos/frechy/src')
-
 from rich.console import Console
 from rich.panel import Panel
 
-from models import Exercise, SessionStats
+from .models import Exercise, SessionStats
 
 
 console = Console()

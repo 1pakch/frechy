@@ -5,7 +5,6 @@ import random
 import sys
 from datetime import datetime
 
-sys.path.insert(0, '/home/ilya/repos/frechy/src')
 
 try:
     import termios
@@ -14,17 +13,17 @@ except ImportError:
     termios = None
     tty = None
 
-from db import Database
-from llm import LLMClient
-from models import Exercise, PracticeMode, SessionStats
-from topics.base import TopicConfig
-from prompts.pronouns import (
+from .db import Database
+from .llm import LLMClient
+from .models import Exercise, PracticeMode, SessionStats
+from .topics.base import TopicConfig
+from .prompts.pronouns import (
     generate_exercise_prompt,
     validate_answer_prompt,
     generate_hint_prompt
 )
 from rich.live import Live
-import display
+from . import display
 
 
 # Terminal control characters

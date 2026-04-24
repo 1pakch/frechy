@@ -1,11 +1,8 @@
 """Pronoun topic definitions."""
 
-import sys
-sys.path.insert(0, '/home/ilya/repos/frechy/src')
-
-from topics.base import TopicConfig
-from topics import TopicRegistry
-from models import PracticeMode
+from .base import TopicConfig
+from . import TopicRegistry
+from ..models import PracticeMode
 
 
 PRONOUN_TOPICS = [

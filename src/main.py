@@ -8,16 +8,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Add src to path for imports
-sys.path.insert(0, '/home/ilya/repos/frechy/src')
 
-from db import Database
-from models import PracticeMode
-from session import Session
-from topics import TopicRegistry
-import display
+from .db import Database
+from .models import PracticeMode
+from .session import Session
+from .topics import TopicRegistry
+from . import display
 
 # Import topics modules to trigger registration
-import topics.pronouns
+from .topics import pronouns
 
 
 def parse_args():

@@ -2,10 +2,7 @@
 
 from dataclasses import dataclass, field
 
-import sys
-sys.path.insert(0, '/home/ilya/repos/frechy/src')
-
-from models import PracticeMode
+from ..models import PracticeMode
 
 
 @dataclass

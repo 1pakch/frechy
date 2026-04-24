@@ -3,7 +3,7 @@
 import sqlite3
 from datetime import datetime
 
-from models import Exercise, SessionStats
+from .models import Exercise, SessionStats
 
 
 class Database:
