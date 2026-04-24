@@ -16,7 +16,9 @@ def show_exercise_translation(exercise: Exercise, num: int):
     console.print(f"[cyan]{exercise.english_text}[/cyan]\n")
 
 
-def show_exercise_word_order(exercise: Exercise, shuffled_words: list[str], key_mapping: dict[str, str], num: int):
+def show_exercise_word_order(
+    exercise: Exercise, shuffled_words: list[str], key_mapping: dict[str, str], num: int
+):
     """Display word-order mode exercise header and footer.
 
     Args:
@@ -28,7 +30,7 @@ def show_exercise_word_order(exercise: Exercise, shuffled_words: list[str], key_
     console.print(f"\n[bold]Exercise {num}[/bold]\n")
     console.print("Put these words in correct order:\n")
     console.print(f"[dim]English: {exercise.english_text}[/dim]")
-    console.print(f"[dim]Press ? for hint, Backspace to undo[/dim]\n")
+    console.print("[dim]Press ? for hint, Backspace to undo[/dim]\n")
 
 
 def format_word_order_preview(selected_words: list[str]) -> str:
@@ -48,9 +50,7 @@ def format_word_order_preview(selected_words: list[str]) -> str:
 
 
 def format_word_order_live(
-    shuffled_words: list[str],
-    key_mapping: dict[str, str],
-    selected_indices: list[int]
+    shuffled_words: list[str], key_mapping: dict[str, str], selected_indices: list[int]
 ) -> str:
     """Format live display for word-order mode with greyed-out selected words.
 

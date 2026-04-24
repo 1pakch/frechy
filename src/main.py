@@ -4,19 +4,17 @@ import argparse
 import sys
 from dotenv import load_dotenv
 
-# Load environment variables from .env
-load_dotenv()
-
-# Add src to path for imports
-
 from .db import Database
 from .models import PracticeMode
 from .session import Session
 from .topics import TopicRegistry
 from . import display
 
-# Import topics modules to trigger registration
-from .topics import pronouns
+# Import for side effects: registers pronoun topics in TopicRegistry
+from .topics import pronouns  # noqa: F401
+
+# Load environment variables from .env
+load_dotenv()
 
 
 def parse_args():
@@ -25,24 +23,17 @@ def parse_args():
     Returns:
         Parsed arguments
     """
-    parser = argparse.ArgumentParser(
-        description="Frechy - French grammar practice CLI"
-    )
+    parser = argparse.ArgumentParser(description="Frechy - French grammar practice CLI")
+    parser.add_argument("-t", "--topic", help="Topic to practice (e.g., pronouns.direct-object)")
     parser.add_argument(
-        "-t", "--topic",
-        help="Topic to practice (e.g., pronouns.direct-object)"
-    )
-    parser.add_argument(
-        "-m", "--mode",
-        choices=[m.value for m in PracticeMode],
-        help="Practice mode"
+        "-m", "--mode", choices=[m.value for m in PracticeMode], help="Practice mode"
     )
     parser.add_argument(
         "--list-topics",
         nargs="?",
         const="",
         metavar="CATEGORY",
-        help="List available topics (optionally filter by category)"
+        help="List available topics (optionally filter by category)",
     )
     return parser.parse_args()
 
