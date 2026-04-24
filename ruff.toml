@@ -1,0 +1,13 @@
+# Ruff configuration
+# https://docs.astral.sh/ruff/
+
+# Line length
+line-length = 100
+
+[lint]
+# Ignore lambda assignment rule - lambdas are fine for simple local helpers
+ignore = ["E731"]
+
+[format]
+# Use double quotes for strings
+quote-style = "double"
